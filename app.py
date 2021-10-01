@@ -1,9 +1,20 @@
-from flask import Flask, render_template
+from enum import unique
+from flask import Flask, render_template, url_for, flash
 from flask.templating import render_template_string
 from flask import request, redirect
 import pickle
+from flask_wtf.recaptcha import validators
 import numpy as np
 import math
+import sqlite3
+from flask_sqlalchemy import SQLAlchemy
+from flask_login import UserMixin, login_user, LoginManager, login_required, logout_user, current_user
+from flask_wtf import FlaskForm
+from wtforms import StringField, PasswordField, SubmitField
+from wtforms.validators import InputRequired, Length, ValidationError
+from flask_bcrypt import Bcrypt
+
+
 
 
 # This is the diabetes model that makes a prediction
@@ -12,6 +23,52 @@ heart_model = pickle.load(open('heart.pkl', 'rb'))
 
 
 app = Flask(__name__)
+
+
+
+
+db = SQLAlchemy(app)
+bcrypt = Bcrypt(app)
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///database.db'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['SECRET_KEY'] = 'thisisasecretkey'
+
+
+login_manager = LoginManager()
+login_manager.init_app(app)
+login_manager.login_view = 'login'
+
+@login_manager.user_loader
+def load_user(user_id):
+    return User.query.get(int(user_id))
+
+
+
+class User(db.Model, UserMixin):
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(20), nullable=False, unique=True)
+    password = db.Column(db.String(80), nullable=False)
+
+
+class RegisterForm(FlaskForm):
+    username = StringField(validators=[InputRequired(), Length(min=4, max=20)], render_kw={"placeholder": "Username"})
+    password = PasswordField(validators=[InputRequired(), Length(min=4, max=20)], render_kw={"placeholder": "Password"})
+
+    submit = SubmitField("Register")
+
+    def validate_username(self, username):
+        existing_user_username = User.query.filter_by(username=username.data).first()
+
+        if existing_user_username:
+            raise ValidationError("Username Already Taken")
+
+
+class LoginForm(FlaskForm):
+    username = StringField(validators=[InputRequired(), Length(min=4, max=20)], render_kw={"placeholder": "Username"})
+    password = PasswordField(validators=[InputRequired(), Length(min=4, max=20)], render_kw={"placeholder": "Password"})
+
+    submit = SubmitField("Login")
+
 
 
 @app.route('/')
@@ -112,13 +169,84 @@ def heart_help():
 def diabetes_help():
     return render_template('diabetes_help.html')
     
+
     
     
 # Create a login page and a sign up page using SQL
 
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    form = LoginForm()
 
-# DELETE THIS COMMENT BELOW IT WILL MESS YOU OVER IN THE FINAL PRODUCT!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-# Wrap the diabetes form in the same style as the heart disease form (first take a pic of crappy form for the report then change it )
+    if form.validate_on_submit():
+        user = User.query.filter_by(username=form.username.data).first()
+        if user:
+            
+            if bcrypt.check_password_hash(user.password, form.password.data):
+                login_user(user)
+                flash('Logged in successfully.')
+                return redirect(url_for('login'))
+        
+            else:
+                flash('Incorrect Login')
+                return redirect(url_for('login'))
+
+        
+
+
+
+            
+
+
+
+
+    return render_template('login.html', form=form)
+
+
+
+
+@app.route('/logout')
+@login_required
+def logout():
+    flash('Logged Out! - See You Again')
+    return redirect(url_for('login'))
+
+@app.route('/success_login')
+@login_required
+def success_login():
+    return render_template('success_login.html')
+
+
+@app.route('/unsuccessful_login')
+def unsuccessful_login():
+    return render_template('unsuccessful_login.html')
+
+
+
+@app.route('/signup', methods=['GET', 'POST'])
+def signup():
+    form = RegisterForm()
+    
+
+    if form.validate_on_submit():
+        hashed_password = bcrypt.generate_password_hash(form.password.data)
+        new_user = User(username=form.username.data, password=hashed_password)
+        db.session.add(new_user)
+        db.session.commit()
+        flash('Account Created!')
+        return redirect(url_for('login'))
+
+    #else:
+       # flash('Something Went Wrong!')
+       # return redirect(url_for('login'))
+
+    #message1 = 'User Already Taken!'
+
+    return render_template('signup.html', form=form)
+
+
+
+# Wrap the diabetes form in the same style as the heart disease form
 
 # Add LINKS TO THE IMAGES IN THE ABOUT PAGE1
 
